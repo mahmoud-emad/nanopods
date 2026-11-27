@@ -1,11 +1,14 @@
 package image
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mahmoud-emad/nanopods/internal/registry"
 )
 
 const (
@@ -54,4 +57,47 @@ func (img *Image) save(path string, data []byte) error {
 // The digest algorithm prefix is replaced so the name is safe on every filesystem.
 func layerPath(digest string) string {
 	return filepath.Join(layersDir, strings.Replace(digest, ":", "-", 1))
+}
+
+// exists reports whether a file at the given path relative to the image directory exists.
+func (img *Image) exists(path string) bool {
+	dir, err := img.Dir()
+	if err != nil {
+		return false
+	}
+
+	_, err = os.Stat(filepath.Join(dir, path))
+	return err == nil
+}
+
+// IsStored reports whether the image was completely downloaded before.
+// It checks that the manifest, the config and every layer listed in the manifest are on disk.
+func (img *Image) IsStored() bool {
+	dir, err := img.Dir()
+	if err != nil {
+		return false
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, manifestFile))
+	if err != nil {
+		return false
+	}
+
+	var manifest registry.ImageManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		slog.Warn("ignoring unreadable stored manifest", "name", img.Name, "tag", img.Tag, "error", err)
+		return false
+	}
+
+	if !img.exists(configFile) {
+		return false
+	}
+
+	for _, layer := range manifest.Layers {
+		if !img.exists(layerPath(layer.Digest)) {
+			return false
+		}
+	}
+
+	return true
 }
