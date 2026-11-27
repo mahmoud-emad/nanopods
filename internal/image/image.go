@@ -31,6 +31,11 @@ func New(name, tag string) *Image {
 
 // Pull downloads the image manifest, config and layers from the default registry and stores them in the image directory.
 func (img *Image) Pull() (Image, error) {
+	if img.IsStored() {
+		slog.Info("image already stored, skipping pull", "name", img.Name, "tag", img.Tag)
+		return *img, nil
+	}
+
 	// We should later change this to use a registry interface to support multiple registries, for now we will use the default registry.
 	r := registry.New()
 
