@@ -26,18 +26,17 @@ func New() *Registry {
 }
 
 // GetImage fetches the image manifest from the registry for the specified repository and tag. It returns the manifest path or an error if the image is not found.
-func (r *Registry) GetImage(repository, tag string) (ImageIndex, error) {
+func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 	path := fmt.Sprintf("%s/v2/library/%s/manifests/%s", r.RemoteURL, repository, tag)
 
 	token, err := r.obtainAccessToken("library/"+repository, "pull")
 	if err != nil {
-		return ImageIndex{}, fmt.Errorf("obtaining access token: %w", err)
+		return nil, fmt.Errorf("obtaining access token: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodGet, path, nil)
-	fmt.Println("Requesting manifest from:", path)
 	if err != nil {
-		return ImageIndex{}, fmt.Errorf("creating manifest request: %w", err)
+		return nil, fmt.Errorf("creating manifest request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token.BearerToken())
@@ -50,20 +49,20 @@ func (r *Registry) GetImage(repository, tag string) (ImageIndex, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return ImageIndex{}, fmt.Errorf("fetching image manifest: %w", err)
+		return nil, fmt.Errorf("fetching image manifest: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return ImageIndex{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"failed to fetch manifest for %s:%s: %s",
 			repository, tag, resp.Status,
 		)
 	}
 
-	var index ImageIndex
+	var index *ImageIndex
 	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
-		return ImageIndex{}, fmt.Errorf("decoding manifest response: %w", err)
+		return nil, fmt.Errorf("decoding manifest response: %w", err)
 	}
 
 	return index, nil

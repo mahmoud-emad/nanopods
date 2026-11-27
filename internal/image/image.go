@@ -31,11 +31,19 @@ func (img *Image) Pull() (Image, error) {
 	// we suould later change this to use a registry interface to support multiple registries, for now we will use the default registry.
 	r := registry.New()
 
-	_img, err := r.GetImage(img.Name, img.Tag)
+	imgIdx, err := r.GetImage(img.Name, img.Tag)
 	if err != nil {
 		return Image{}, fmt.Errorf("error pulling image: %v", err)
 	}
 
-	fmt.Printf("Pulled image: %s:%s from %s\n", img.Name, img.Tag, _img)
+	for _, manifest := range imgIdx.Manifests {
+		// Find the manifest matching the host platform.
+		// For now, let's assume linux/amd64. TODO: We need to support different platforms.
+		if manifest.Platform.OS == "linux" && manifest.Platform.Architecture == "amd" {
+			fmt.Println("Selected manifest:", manifest.Digest)
+			break
+		}
+	}
+
 	return *img, nil
 }
