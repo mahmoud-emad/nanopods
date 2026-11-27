@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -58,11 +59,13 @@ func (r *Registry) getManifestResponse(url, repository string) (*http.Response, 
 			"application/vnd.docker.distribution.manifest.v2+json",
 	)
 
+	slog.Info("requesting manifest", "url", url)
 	resp, err := r.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching image manifest: %w", err)
 	}
 
+	slog.Info("received manifest response", "status", resp.Status, "content_type", resp.Header.Get("Content-Type"))
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, fmt.Errorf("registry returned status: %s", resp.Status)
@@ -94,6 +97,7 @@ func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 		return nil, fmt.Errorf("decoding image index: %w", err)
 	}
 
+	slog.Info("fetched image index", "repository", repository, "tag", tag, "manifests", len(index.Manifests))
 	return &index, nil
 }
 
@@ -120,5 +124,6 @@ func (r *Registry) GetManifest(repository, digest string) (*ImageManifest, error
 		return nil, fmt.Errorf("decoding image manifest: %w", err)
 	}
 
+	slog.Info("fetched image manifest", "repository", repository, "digest", digest, "layers", len(manifest.Layers))
 	return &manifest, nil
 }
