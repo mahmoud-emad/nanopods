@@ -28,28 +28,43 @@ func New(name, tag string) *Image {
 	}
 }
 
+// Pull downloads the image config and layers from the default registry.
 func (img *Image) Pull() (Image, error) {
-	// we suould later change this to use a registry interface to support multiple registries, for now we will use the default registry.
+	// We should later change this to use a registry interface to support multiple registries, for now we will use the default registry.
 	r := registry.New()
 
 	slog.Info("pulling image", "name", img.Name, "tag", img.Tag, "id", img.ID)
-	imgIdx, err := r.GetImage(img.Name, img.Tag)
+	index, err := r.GetImage(img.Name, img.Tag)
 	if err != nil {
-		return Image{}, fmt.Errorf("error pulling image: %v", err)
+		return Image{}, fmt.Errorf("error pulling image: %w", err)
 	}
 
 	// Find the manifest matching the host platform.
 	// For now, let's assume linux/amd64. TODO: We need to support different platforms.
-	platform, err := imgIdx.SelectPlatform("linux", "amd")
+	descriptor, err := index.SelectPlatform("linux", "amd64")
 	if err != nil {
-		return Image{}, fmt.Errorf("cannot select platform: %v", err)
+		return Image{}, fmt.Errorf("cannot select platform: %w", err)
 	}
 
-	slog.Info("selected platform", "digest", platform.Digest, "os", platform.Platform.OS, "arch", platform.Platform.Architecture)
+	slog.Info("selected platform", "digest", descriptor.Digest, "os", descriptor.Platform.OS, "arch", descriptor.Platform.Architecture)
 
-	manifest, err := r.GetManifest(img.Name, platform.Digest)
+	manifest, err := r.GetManifest(img.Name, descriptor.Digest)
 	if err != nil {
-		return Image{}, fmt.Errorf("cannot fetch image manifest: %v", err)
+		return Image{}, fmt.Errorf("cannot fetch image manifest: %w", err)
+	}
+
+	config, err := r.GetBlob(img.Name, manifest.Config.Digest)
+	if err != nil {
+		return Image{}, fmt.Errorf("cannot download config blob: %w", err)
+	}
+	slog.Info("downloaded config", "digest", manifest.Config.Digest, "bytes", len(config))
+
+	for i, layer := range manifest.Layers {
+		blob, err := r.GetBlob(img.Name, layer.Digest)
+		if err != nil {
+			return Image{}, fmt.Errorf("cannot download layer blob: %w", err)
+		}
+		slog.Info("downloaded layer", "layer", fmt.Sprintf("%d/%d", i+1, len(manifest.Layers)), "digest", layer.Digest, "bytes", len(blob))
 	}
 
 	slog.Info("pulled image", "name", img.Name, "tag", img.Tag, "config", manifest.Config.Digest, "layers", len(manifest.Layers))
