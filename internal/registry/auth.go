@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 )
@@ -37,6 +38,7 @@ func (r *Registry) obtainAccessToken(repository string, action string) (TokenRes
 	q.Set("scope", fmt.Sprintf("repository:%s:%s", repository, action))
 	u.RawQuery = q.Encode()
 
+	slog.Info("requesting access token", "url", u.String())
 	resp, err := http.Get(u.String())
 	if err != nil {
 		return TokenResponse{}, fmt.Errorf("obtaining access token: %w", err)
@@ -58,5 +60,6 @@ func (r *Registry) obtainAccessToken(repository string, action string) (TokenRes
 		return TokenResponse{}, fmt.Errorf("token response contains no token")
 	}
 
+	slog.Info("obtained access token", "repository", repository, "action", action, "expires_in", token.ExpiresIn)
 	return token, nil
 }

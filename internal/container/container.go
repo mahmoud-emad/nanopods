@@ -2,6 +2,7 @@ package container
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/mahmoud-emad/nanopods/internal/image"
 	"github.com/mahmoud-emad/nanopods/internal/utils"
@@ -26,11 +27,12 @@ func New(name, img, tag string) *Container {
 
 // Run simulates running the container by printing its details. In a real implementation, this would involve setting up namespaces, cgroups, and executing the container's process.
 func (cn *Container) Run() error {
+	slog.Info("starting container", "name", cn.Name, "id", cn.ID)
 	img, imgErr := cn.Image.Pull()
 	if imgErr != nil {
 		return fmt.Errorf("error running container: %v", imgErr)
 	}
 
-	fmt.Println("Running container:", cn.Name, "with image:", img.Name, "tag:", img.Tag)
+	slog.Info("running container", "name", cn.Name, "image", img.Name, "tag", img.Tag)
 	return nil
 }

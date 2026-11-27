@@ -2,6 +2,7 @@ package image
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/mahmoud-emad/nanopods/internal/registry"
 	"github.com/mahmoud-emad/nanopods/internal/utils"
@@ -31,16 +32,18 @@ func (img *Image) Pull() (Image, error) {
 	// we suould later change this to use a registry interface to support multiple registries, for now we will use the default registry.
 	r := registry.New()
 
+	slog.Info("pulling image", "name", img.Name, "tag", img.Tag, "id", img.ID)
 	imgIdx, err := r.GetImage(img.Name, img.Tag)
 	if err != nil {
 		return Image{}, fmt.Errorf("error pulling image: %v", err)
 	}
 
 	for _, manifest := range imgIdx.Manifests {
+		slog.Info("checking manifest", "digest", manifest.Digest, "os", manifest.Platform.OS, "arch", manifest.Platform.Architecture)
 		// Find the manifest matching the host platform.
 		// For now, let's assume linux/amd64. TODO: We need to support different platforms.
 		if manifest.Platform.OS == "linux" && manifest.Platform.Architecture == "amd" {
-			fmt.Println("Selected manifest:", manifest.Digest)
+			slog.Info("selected manifest", "digest", manifest.Digest)
 			break
 		}
 	}

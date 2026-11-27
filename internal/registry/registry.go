@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -39,6 +40,7 @@ func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 		return nil, fmt.Errorf("creating manifest request: %w", err)
 	}
 
+	slog.Info("requesting manifest", "url", path)
 	req.Header.Set("Authorization", "Bearer "+token.BearerToken())
 	req.Header.Set("Accept",
 		"application/vnd.oci.image.index.v1+json, "+
@@ -53,6 +55,7 @@ func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 	}
 	defer resp.Body.Close()
 
+	slog.Info("received manifest response", "status", resp.Status, "content_type", resp.Header.Get("Content-Type"))
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf(
 			"failed to fetch manifest for %s:%s: %s",
@@ -65,6 +68,7 @@ func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 		return nil, fmt.Errorf("decoding manifest response: %w", err)
 	}
 
+	slog.Info("fetched image index", "repository", repository, "tag", tag, "manifests", len(index.Manifests))
 	return index, nil
 
 }

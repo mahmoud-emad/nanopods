@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/mahmoud-emad/nanopods/internal/container"
@@ -15,6 +16,7 @@ var runCmd = &cobra.Command{
 		containerName := args[0]
 		imageName, imageTag := parseImage(args[1])
 
+		slog.Info("parsed image reference", "input", args[1], "name", imageName, "tag", imageTag)
 		return runInit(containerName, imageName, imageTag)
 	},
 }
