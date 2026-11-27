@@ -34,3 +34,10 @@ Namespaces, cgroups, root filesystem setup, and networking are not implemented y
 ## Status
 
 nanopods is a learning project. Instead of only using Docker, I wanted to build something myself and understand how things work behind the scenes.
+
+## Resources
+
+1. [Open Container Initiative Distribution Specification](https://github.com/opencontainers/distribution-spec/blob/main/spec.md)
+2. [Image Specification](https://github.com/opencontainers/image-spec)
+3. [Open Containers](https://github.com/opencontainers)
+4. [runc](https://github.com/opencontainers/runc)
