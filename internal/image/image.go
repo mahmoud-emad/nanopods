@@ -38,15 +38,20 @@ func (img *Image) Pull() (Image, error) {
 		return Image{}, fmt.Errorf("error pulling image: %v", err)
 	}
 
-	for _, manifest := range imgIdx.Manifests {
-		slog.Info("checking manifest", "digest", manifest.Digest, "os", manifest.Platform.OS, "arch", manifest.Platform.Architecture)
-		// Find the manifest matching the host platform.
-		// For now, let's assume linux/amd64. TODO: We need to support different platforms.
-		if manifest.Platform.OS == "linux" && manifest.Platform.Architecture == "amd" {
-			slog.Info("selected manifest", "digest", manifest.Digest)
-			break
-		}
+	// Find the manifest matching the host platform.
+	// For now, let's assume linux/amd64. TODO: We need to support different platforms.
+	platform, err := imgIdx.SelectPlatform("linux", "amd")
+	if err != nil {
+		return Image{}, fmt.Errorf("cannot select platform: %v", err)
 	}
 
+	slog.Info("selected platform", "digest", platform.Digest, "os", platform.Platform.OS, "arch", platform.Platform.Architecture)
+
+	manifest, err := r.GetManifest(img.Name, platform.Digest)
+	if err != nil {
+		return Image{}, fmt.Errorf("cannot fetch image manifest: %v", err)
+	}
+
+	slog.Info("pulled image", "name", img.Name, "tag", img.Tag, "config", manifest.Config.Digest, "layers", len(manifest.Layers))
 	return *img, nil
 }
