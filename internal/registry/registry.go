@@ -1,8 +1,11 @@
 package registry
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -126,4 +129,54 @@ func (r *Registry) GetManifest(repository, digest string) (*ImageManifest, error
 
 	slog.Info("fetched image manifest", "repository", repository, "digest", digest, "layers", len(manifest.Layers))
 	return &manifest, nil
+}
+
+func (r *Registry) GetBlob(repository, digest string) ([]byte, error) {
+	repository = normalizeRepository(repository)
+
+	url := fmt.Sprintf(
+		"%s/v2/%s/blobs/%s",
+		r.RemoteURL,
+		repository,
+		digest,
+	)
+
+	token, err := r.obtainAccessToken(repository, "pull")
+	if err != nil {
+		return nil, fmt.Errorf("obtaining access token: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating blob request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token.BearerToken())
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloading blob: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("registry returned status: %s", resp.Status)
+	}
+
+	blob, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading blob: %w", err)
+	}
+
+	// Verify the downloaded content against its descriptor digest.
+	expectedDigest := strings.TrimPrefix(digest, "sha256:")
+	actualDigest := sha256.Sum256(blob)
+	actualHex := hex.EncodeToString(actualDigest[:])
+
+	if actualHex != expectedDigest {
+		return nil, fmt.Errorf("blob digest mismatch: expected %s, got sha256:%s",
+			digest, actualHex)
+	}
+
+	return blob, nil
 }
