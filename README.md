@@ -27,6 +27,7 @@ make clean
 
 - Parsing `image[:tag]` references.
 - Requesting a pull token from the Docker registry and fetching the image manifest.
+- Downloading the image config and layers, verifying their digests, and storing them in `~/.nanopods/images/<name>/<tag>/`.
 - Creating a container with a generated ID.
 
 Namespaces, cgroups, root filesystem setup, and networking are not implemented yet.
