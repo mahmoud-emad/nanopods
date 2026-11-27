@@ -4,88 +4,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 )
 
 const (
-	DefaultRegistryURL     = "https://registry-1.docker.io"
+	// DefaultRegistryURL is the default URL for the Docker registry.
+	DefaultRegistryURL = "https://registry-1.docker.io"
+	// DefaultRegistryService is the default service name for the Docker registry.
 	DefaultRegistryService = "registry.docker.io"
-	DefaultTokenURL        = "https://auth.docker.io/token"
 )
 
-type TokenResponse struct {
-	Token       string `json:"token"`
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"`
-}
-
-func (t TokenResponse) BearerToken() string {
-	if t.Token != "" {
-		return t.Token
-	}
-	return t.AccessToken
-}
-
-// Registry interface {
-//     Pull(ref Reference) (*Image, error)
-// }
-
+// Registry represents a Docker registry with its remote URL.
 type Registry struct {
 	RemoteURL string
 }
 
+// New creates a new Registry instance with the default remote URL.
 func New() *Registry {
 	return &Registry{
 		RemoteURL: DefaultRegistryURL,
 	}
 }
 
-func (r *Registry) obtainAccessToken(repository string, action string) (TokenResponse, error) {
-	u, err := url.Parse(DefaultTokenURL)
+// GetImage fetches the image manifest from the registry for the specified repository and tag. It returns the manifest path or an error if the image is not found.
+func (r *Registry) GetImage(repository, tag string) (ImageIndex, error) {
+	path := fmt.Sprintf("%s/v2/library/%s/manifests/%s", r.RemoteURL, repository, tag)
+
+	token, err := r.obtainAccessToken("library/"+repository, "pull")
 	if err != nil {
-		return TokenResponse{}, fmt.Errorf("parsing token URL: %w", err)
-	}
-
-	q := u.Query()
-	q.Set("service", DefaultRegistryService)
-	q.Set("scope", fmt.Sprintf("repository:%s:%s", repository, action))
-	u.RawQuery = q.Encode()
-
-	resp, err := http.Get(u.String())
-	if err != nil {
-		return TokenResponse{}, fmt.Errorf("obtaining access token: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return TokenResponse{}, fmt.Errorf(
-			"token request failed: %s", resp.Status,
-		)
-	}
-
-	var token TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
-		return TokenResponse{}, fmt.Errorf("decoding token response: %w", err)
-	}
-
-	if token.BearerToken() == "" {
-		return TokenResponse{}, fmt.Errorf("token response contains no token")
-	}
-
-	return token, nil
-}
-
-func (r *Registry) GetImage(repository, tag string) (string, error) {
-	path := fmt.Sprintf("%s/v2/%s/manifests/%s", r.RemoteURL, repository, tag)
-
-	token, err := r.obtainAccessToken(repository, "pull")
-	if err != nil {
-		return "", fmt.Errorf("obtaining access token: %w", err)
+		return ImageIndex{}, fmt.Errorf("obtaining access token: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodGet, path, nil)
+	fmt.Println("Requesting manifest from:", path)
 	if err != nil {
-		return "", fmt.Errorf("creating manifest request: %w", err)
+		return ImageIndex{}, fmt.Errorf("creating manifest request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token.BearerToken())
@@ -98,16 +50,22 @@ func (r *Registry) GetImage(repository, tag string) (string, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetching image manifest: %w", err)
+		return ImageIndex{}, fmt.Errorf("fetching image manifest: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf(
+		return ImageIndex{}, fmt.Errorf(
 			"failed to fetch manifest for %s:%s: %s",
 			repository, tag, resp.Status,
 		)
 	}
 
-	return path, nil
+	var index ImageIndex
+	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
+		return ImageIndex{}, fmt.Errorf("decoding manifest response: %w", err)
+	}
+
+	return index, nil
+
 }
