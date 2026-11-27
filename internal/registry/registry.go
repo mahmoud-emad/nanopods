@@ -31,6 +31,9 @@ const (
 type Registry struct {
 	RemoteURL string
 	Client    *http.Client
+
+	// tokens caches access tokens by repository and action until they expire.
+	tokens map[string]cachedToken
 }
 
 // New creates a new Registry instance.
