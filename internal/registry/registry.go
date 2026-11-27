@@ -147,6 +147,5 @@ func (r *Registry) GetBlob(repository, digest string) ([]byte, error) {
 		return nil, fmt.Errorf("blob digest mismatch: expected %s, got %s", digest, actual)
 	}
 
-	slog.Info("downloaded blob", "digest", digest, "bytes", len(blob))
 	return blob, nil
 }
