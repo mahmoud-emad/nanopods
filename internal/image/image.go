@@ -67,24 +67,28 @@ func (img *Image) Pull() (Image, error) {
 		return Image{}, fmt.Errorf("cannot store image manifest: %w", err)
 	}
 
-	config, err := r.GetBlob(img.Name, manifest.Config.Digest)
+	configPath, err := img.Path(configFile)
+	if err != nil {
+		return Image{}, fmt.Errorf("cannot resolve config path: %w", err)
+	}
+
+	size, err := r.DownloadBlob(img.Name, manifest.Config.Digest, configPath)
 	if err != nil {
 		return Image{}, fmt.Errorf("cannot download config blob: %w", err)
 	}
-	slog.Info("downloaded config", "digest", manifest.Config.Digest, "bytes", len(config))
-	if err := img.save(configFile, config); err != nil {
-		return Image{}, fmt.Errorf("cannot store config blob: %w", err)
-	}
+	slog.Info("downloaded config", "digest", manifest.Config.Digest, "bytes", size, "path", configPath)
 
 	for i, layer := range manifest.Layers {
-		blob, err := r.GetBlob(img.Name, layer.Digest)
+		layerFile, err := img.Path(layerPath(layer.Digest))
+		if err != nil {
+			return Image{}, fmt.Errorf("cannot resolve layer path: %w", err)
+		}
+
+		size, err := r.DownloadBlob(img.Name, layer.Digest, layerFile)
 		if err != nil {
 			return Image{}, fmt.Errorf("cannot download layer blob: %w", err)
 		}
-		slog.Info("downloaded layer", "layer", fmt.Sprintf("%d/%d", i+1, len(manifest.Layers)), "digest", layer.Digest, "bytes", len(blob))
-		if err := img.save(layerPath(layer.Digest), blob); err != nil {
-			return Image{}, fmt.Errorf("cannot store layer blob: %w", err)
-		}
+		slog.Info("downloaded layer", "layer", fmt.Sprintf("%d/%d", i+1, len(manifest.Layers)), "digest", layer.Digest, "bytes", size, "path", layerFile)
 	}
 
 	slog.Info("pulled image", "name", img.Name, "tag", img.Tag, "config", manifest.Config.Digest, "layers", len(manifest.Layers))

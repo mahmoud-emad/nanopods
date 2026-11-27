@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -124,30 +126,58 @@ func (r *Registry) GetManifest(repository, digest string) (*ImageManifest, error
 	return &manifest, nil
 }
 
-// GetBlob downloads a blob by digest and verifies its content against that digest.
-func (r *Registry) GetBlob(repository, digest string) ([]byte, error) {
+// DownloadBlob streams a blob to dest while hashing it, and keeps the file only if its content matches the digest.
+// The blob is written to a temporary file next to dest, so a failed or corrupted download never leaves a partial file at dest.
+// It returns the number of bytes written.
+func (r *Registry) DownloadBlob(repository, digest, dest string) (int64, error) {
 	repository = normalizeRepository(repository)
 	url := fmt.Sprintf("%s/v2/%s/blobs/%s", r.RemoteURL, repository, digest)
 
 	resp, err := r.get(url, repository, "")
 	if err != nil {
-		return nil, fmt.Errorf("downloading blob: %w", err)
+		return 0, fmt.Errorf("downloading blob: %w", err)
 	}
 	defer resp.Body.Close()
 
-	blob, err := io.ReadAll(resp.Body)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return 0, fmt.Errorf("creating directory: %w", err)
+	}
+
+	file, err := os.CreateTemp(filepath.Dir(dest), ".blob-*")
 	if err != nil {
-		return nil, fmt.Errorf("reading blob: %w", err)
+		return 0, fmt.Errorf("creating temporary file: %w", err)
+	}
+	// Remove the temporary file on every failure path. After a successful rename it no longer exists.
+	defer os.Remove(file.Name())
+
+	hash := sha256.New()
+	written, err := io.Copy(io.MultiWriter(file, hash), resp.Body)
+	if err != nil {
+		file.Close()
+		return 0, fmt.Errorf("streaming blob: %w", err)
+	}
+
+	// CreateTemp creates files readable by the owner only, blobs should match the other stored files.
+	if err := file.Chmod(0o644); err != nil {
+		file.Close()
+		return 0, fmt.Errorf("setting file mode: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return 0, fmt.Errorf("closing temporary file: %w", err)
 	}
 
 	// Verify the downloaded content against its descriptor digest.
-	sum := sha256.Sum256(blob)
-	actual := "sha256:" + hex.EncodeToString(sum[:])
+	actual := "sha256:" + hex.EncodeToString(hash.Sum(nil))
 	if actual != digest {
-		return nil, fmt.Errorf("blob digest mismatch: expected %s, got %s", digest, actual)
+		return 0, fmt.Errorf("blob digest mismatch: expected %s, got %s", digest, actual)
 	}
 
 	slog.Info("verified blob digest", "expected", digest, "actual", actual)
 
-	return blob, nil
+	if err := os.Rename(file.Name(), dest); err != nil {
+		return 0, fmt.Errorf("moving blob to %s: %w", dest, err)
+	}
+
+	return written, nil
 }

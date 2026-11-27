@@ -33,14 +33,23 @@ func (img *Image) Dir() (string, error) {
 	return filepath.Join(home, storeDirName, "images", filepath.FromSlash(img.Name), img.Tag), nil
 }
 
+// Path returns the full path of a file relative to the image directory.
+func (img *Image) Path(rel string) (string, error) {
+	dir, err := img.Dir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, rel), nil
+}
+
 // save writes data to the given path relative to the image directory, creating directories as needed.
 func (img *Image) save(path string, data []byte) error {
-	dir, err := img.Dir()
+	full, err := img.Path(path)
 	if err != nil {
 		return err
 	}
 
-	full := filepath.Join(dir, path)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
