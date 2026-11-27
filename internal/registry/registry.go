@@ -147,5 +147,7 @@ func (r *Registry) GetBlob(repository, digest string) ([]byte, error) {
 		return nil, fmt.Errorf("blob digest mismatch: expected %s, got %s", digest, actual)
 	}
 
+	slog.Info("verified blob digest", "expected", digest, "actual", actual)
+
 	return blob, nil
 }
