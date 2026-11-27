@@ -17,6 +17,12 @@ const (
 
 	// DefaultRegistryService is the default service name for Docker Hub.
 	DefaultRegistryService = "registry.docker.io"
+
+	// manifestAccept lists the manifest media types the registry may answer with.
+	manifestAccept = "application/vnd.oci.image.index.v1+json, " +
+		"application/vnd.oci.image.manifest.v1+json, " +
+		"application/vnd.docker.distribution.manifest.list.v2+json, " +
+		"application/vnd.docker.distribution.manifest.v2+json"
 )
 
 // Registry represents a Docker registry.
@@ -42,8 +48,9 @@ func normalizeRepository(repository string) string {
 	return repository
 }
 
-// getManifestResponse performs an authenticated request to fetch a manifest.
-func (r *Registry) getManifestResponse(url, repository string) (*http.Response, error) {
+// get performs an authenticated GET request and returns the response when the registry answers with 200 OK.
+// The caller must close the response body. The accept header is skipped when empty.
+func (r *Registry) get(url, repository, accept string) (*http.Response, error) {
 	token, err := r.obtainAccessToken(repository, "pull")
 	if err != nil {
 		return nil, fmt.Errorf("obtaining access token: %w", err)
@@ -51,24 +58,21 @@ func (r *Registry) getManifestResponse(url, repository string) (*http.Response, 
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating manifest request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token.BearerToken())
-	req.Header.Set("Accept",
-		"application/vnd.oci.image.index.v1+json, "+
-			"application/vnd.oci.image.manifest.v1+json, "+
-			"application/vnd.docker.distribution.manifest.list.v2+json, "+
-			"application/vnd.docker.distribution.manifest.v2+json",
-	)
-
-	slog.Info("requesting manifest", "url", url)
-	resp, err := r.Client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetching image manifest: %w", err)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
 	}
 
-	slog.Info("received manifest response", "status", resp.Status, "content_type", resp.Header.Get("Content-Type"))
+	slog.Info("requesting registry", "url", url)
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("sending request: %w", err)
+	}
+
+	slog.Info("received registry response", "status", resp.Status, "content_type", resp.Header.Get("Content-Type"))
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, fmt.Errorf("registry returned status: %s", resp.Status)
@@ -77,27 +81,30 @@ func (r *Registry) getManifestResponse(url, repository string) (*http.Response, 
 	return resp, nil
 }
 
+// getManifest fetches a manifest by tag or digest and decodes it into v.
+func (r *Registry) getManifest(repository, reference string, v any) error {
+	url := fmt.Sprintf("%s/v2/%s/manifests/%s", r.RemoteURL, repository, reference)
+
+	resp, err := r.get(url, repository, manifestAccept)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		return fmt.Errorf("decoding manifest: %w", err)
+	}
+
+	return nil
+}
+
 // GetImage fetches the image index for the specified repository and tag.
 func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 	repository = normalizeRepository(repository)
 
-	path := fmt.Sprintf(
-		"%s/v2/%s/manifests/%s",
-		r.RemoteURL,
-		repository,
-		tag,
-	)
-
-	resp, err := r.getManifestResponse(path, repository)
-	if err != nil {
-		return nil, fmt.Errorf("getting image index: %w", err)
-	}
-	defer resp.Body.Close()
-
 	var index ImageIndex
-
-	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
-		return nil, fmt.Errorf("decoding image index: %w", err)
+	if err := r.getManifest(repository, tag, &index); err != nil {
+		return nil, fmt.Errorf("getting image index: %w", err)
 	}
 
 	slog.Info("fetched image index", "repository", repository, "tag", tag, "manifests", len(index.Manifests))
@@ -108,60 +115,25 @@ func (r *Registry) GetImage(repository, tag string) (*ImageIndex, error) {
 func (r *Registry) GetManifest(repository, digest string) (*ImageManifest, error) {
 	repository = normalizeRepository(repository)
 
-	path := fmt.Sprintf(
-		"%s/v2/%s/manifests/%s",
-		r.RemoteURL,
-		repository,
-		digest,
-	)
-
-	resp, err := r.getManifestResponse(path, repository)
-	if err != nil {
-		return nil, fmt.Errorf("getting image manifest: %w", err)
-	}
-	defer resp.Body.Close()
-
 	var manifest ImageManifest
-
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return nil, fmt.Errorf("decoding image manifest: %w", err)
+	if err := r.getManifest(repository, digest, &manifest); err != nil {
+		return nil, fmt.Errorf("getting image manifest: %w", err)
 	}
 
 	slog.Info("fetched image manifest", "repository", repository, "digest", digest, "layers", len(manifest.Layers))
 	return &manifest, nil
 }
 
+// GetBlob downloads a blob by digest and verifies its content against that digest.
 func (r *Registry) GetBlob(repository, digest string) ([]byte, error) {
 	repository = normalizeRepository(repository)
+	url := fmt.Sprintf("%s/v2/%s/blobs/%s", r.RemoteURL, repository, digest)
 
-	url := fmt.Sprintf(
-		"%s/v2/%s/blobs/%s",
-		r.RemoteURL,
-		repository,
-		digest,
-	)
-
-	token, err := r.obtainAccessToken(repository, "pull")
-	if err != nil {
-		return nil, fmt.Errorf("obtaining access token: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating blob request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token.BearerToken())
-
-	resp, err := r.Client.Do(req)
+	resp, err := r.get(url, repository, "")
 	if err != nil {
 		return nil, fmt.Errorf("downloading blob: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("registry returned status: %s", resp.Status)
-	}
 
 	blob, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -169,14 +141,12 @@ func (r *Registry) GetBlob(repository, digest string) ([]byte, error) {
 	}
 
 	// Verify the downloaded content against its descriptor digest.
-	expectedDigest := strings.TrimPrefix(digest, "sha256:")
-	actualDigest := sha256.Sum256(blob)
-	actualHex := hex.EncodeToString(actualDigest[:])
-
-	if actualHex != expectedDigest {
-		return nil, fmt.Errorf("blob digest mismatch: expected %s, got sha256:%s",
-			digest, actualHex)
+	sum := sha256.Sum256(blob)
+	actual := "sha256:" + hex.EncodeToString(sum[:])
+	if actual != digest {
+		return nil, fmt.Errorf("blob digest mismatch: expected %s, got %s", digest, actual)
 	}
 
+	slog.Info("downloaded blob", "digest", digest, "bytes", len(blob))
 	return blob, nil
 }
